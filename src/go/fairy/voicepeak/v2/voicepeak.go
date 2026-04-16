@@ -39,8 +39,14 @@ var (
 
 type voicepeak struct{}
 
+var legacyFairyCall bool
+
 func New() fairy.Fairy {
 	return &voicepeak{}
+}
+
+func SetLegacyFairyCall(v bool) {
+	legacyFairyCall = v
 }
 
 func (vp *voicepeak) IsTarget(hwnd win32.HWND, exePath string) bool {
@@ -104,16 +110,19 @@ func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (str
 		}()
 	}
 
-	// build filename
+	// Build the export directory from the configured namer.
+	// In legacy mode we also use the exact filename for compatibility.
 	wavPath, err := namer(name, text)
 	if err != nil {
 		return fmt.Errorf("failed to build filename: %w", err)
 	}
-	_, err = os.Stat(wavPath)
-	if err == nil {
-		return fmt.Errorf("file %v already exists: %w", wavPath, os.ErrExist)
-	} else if !os.IsNotExist(err) {
-		return fmt.Errorf("failed to test file %v: %w", wavPath, err)
+	if legacyFairyCall {
+		_, err = os.Stat(wavPath)
+		if err == nil {
+			return fmt.Errorf("file %v already exists: %w", wavPath, os.ErrExist)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("failed to test file %v: %w", wavPath, err)
+		}
 	}
 
 	// show context menu
@@ -148,7 +157,7 @@ func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (str
 		if time.Now().After(deadLine) {
 			return fmt.Errorf("waiting for block export dialog creation timed out: %w", err)
 		}
-		blockExportDialog, err = findBlockExportDialog(uia, pid, hwnd)
+		blockExportDialog, err = findBlockExportDialog(uia, pid, hwnd, legacyFairyCall)
 		if err != nil {
 			continue
 		}
@@ -156,25 +165,27 @@ func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (str
 	}
 	defer blockExportDialog.Release()
 
-	// set export file name
-	behwnd, err := blockExportDialog.window.GetNativeWindowHandle()
-	if err != nil {
-		return fmt.Errorf("failed to get dialog window handle: %w", err)
-	}
-	err = blockExportDialog.edit.SetTextViaWMChar(behwnd, filepath.Base(changeExt(wavPath, "")))
-	if err != nil {
-		return fmt.Errorf("failed to set text: %w", err)
-	}
-
-	// disable naming rule if enabled
-	chk, err := blockExportDialog.namingRuleCheckBox.GetCurrentPropertyStringValue(win32.UIA_ValueValuePropertyId)
-	if err != nil {
-		return fmt.Errorf("failed to get checkbox state: %w", err)
-	}
-	if chk == "On" {
-		err = blockExportDialog.namingRuleCheckBox.Invoke()
+	if legacyFairyCall {
+		// set export file name
+		behwnd, err := blockExportDialog.window.GetNativeWindowHandle()
 		if err != nil {
-			return fmt.Errorf("failed to set checkbox state: %w", err)
+			return fmt.Errorf("failed to get dialog window handle: %w", err)
+		}
+		err = blockExportDialog.edit.SetTextViaWMChar(behwnd, filepath.Base(changeExt(wavPath, "")))
+		if err != nil {
+			return fmt.Errorf("failed to set text: %w", err)
+		}
+
+		// disable naming rule if enabled
+		chk, err := blockExportDialog.namingRuleCheckBox.GetCurrentPropertyStringValue(win32.UIA_ValueValuePropertyId)
+		if err != nil {
+			return fmt.Errorf("failed to get checkbox state: %w", err)
+		}
+		if chk == "On" {
+			err = blockExportDialog.namingRuleCheckBox.Invoke()
+			if err != nil {
+				return fmt.Errorf("failed to set checkbox state: %w", err)
+			}
 		}
 	}
 
@@ -210,6 +221,10 @@ func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (str
 	err = folderSelectDialog.button.Invoke()
 	if err != nil {
 		return fmt.Errorf("failed to click select button: %w", err)
+	}
+
+	if !legacyFairyCall {
+		return nil
 	}
 
 	// wait file creation

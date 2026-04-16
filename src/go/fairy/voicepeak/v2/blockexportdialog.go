@@ -112,7 +112,7 @@ func findBlockExportNamingRuleCheckBox(elems *internal.Elements, index int, out 
 	return nil
 }
 
-func findBlockExportDialog(uia *internal.UIAutomation, pid win32.DWORD, mainWindow win32.HWND) (*blockExportDialog, error) {
+func findBlockExportDialog(uia *internal.UIAutomation, pid win32.DWORD, mainWindow win32.HWND, requireLegacyFields bool) (*blockExportDialog, error) {
 	windowHandle := internal.FindWindow(0, "", "", uint32(pid), func(h win32.HWND) bool {
 		if h == mainWindow {
 			return false
@@ -170,24 +170,26 @@ func findBlockExportDialog(uia *internal.UIAutomation, pid win32.DWORD, mainWind
 		window: window,
 		button: exportButtonElement,
 	}
-	for i := 0; i < elems.Len && (r.edit == nil || r.namingRuleCheckBox == nil); i++ {
-		err = findBlockExportFilenameEdit(elems, i, &r)
-		if err != nil && !errors.Is(err, internal.ErrElementNotFound) {
-			log.Printf("failed to get edit element: %v", err)
+	if requireLegacyFields {
+		for i := 0; i < elems.Len && (r.edit == nil || r.namingRuleCheckBox == nil); i++ {
+			err = findBlockExportFilenameEdit(elems, i, &r)
+			if err != nil && !errors.Is(err, internal.ErrElementNotFound) {
+				log.Printf("failed to get edit element: %v", err)
+			}
+			err = findBlockExportNamingRuleCheckBox(elems, i, &r)
+			if err != nil && !errors.Is(err, internal.ErrElementNotFound) {
+				log.Printf("failed to get naming rule check box element: %v", err)
+			}
 		}
-		err = findBlockExportNamingRuleCheckBox(elems, i, &r)
-		if err != nil && !errors.Is(err, internal.ErrElementNotFound) {
-			log.Printf("failed to get naming rule check box element: %v", err)
+		if r.edit == nil {
+			return nil, fmt.Errorf("filename edit not found: %w", err)
 		}
+		defer r.edit.Release()
+		if r.namingRuleCheckBox == nil {
+			return nil, fmt.Errorf("naming rule check box not found: %w", err)
+		}
+		defer r.namingRuleCheckBox.Release()
 	}
-	if r.edit == nil {
-		return nil, fmt.Errorf("filename edit not found: %w", err)
-	}
-	defer r.edit.Release()
-	if r.namingRuleCheckBox == nil {
-		return nil, fmt.Errorf("naming rule check box not found: %w", err)
-	}
-	defer r.namingRuleCheckBox.Release()
 
 	err = window.SetEnable(false)
 	if err != nil {
@@ -196,7 +198,11 @@ func findBlockExportDialog(uia *internal.UIAutomation, pid win32.DWORD, mainWind
 
 	window.AddRef()
 	exportButtonElement.AddRef()
-	r.edit.AddRef()
-	r.namingRuleCheckBox.AddRef()
+	if r.edit != nil {
+		r.edit.AddRef()
+	}
+	if r.namingRuleCheckBox != nil {
+		r.namingRuleCheckBox.AddRef()
+	}
 	return &r, nil
 }

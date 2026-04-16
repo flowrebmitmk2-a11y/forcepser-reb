@@ -30,7 +30,16 @@
 # 全体に関わる設定を書きます
 # ==============================
 
+# FairyCall output directory.
+# Default is %TEMPDIR%, but you can change it to a watched folder such as F:\音声\tmp.
+fairydir = '%TEMPDIR%'
+
 # ◆ 音声ファイルを拡張編集に自動挿入したあと、後ろに確保する余白の大きさをミリ秒単位で指定
+## VOICEPEAK fairycall compatibility switch.
+## false: use VOICEPEAK's naming rule and text-file output.
+## true:  use the old forcepser behavior that fills the filename and writes txt by itself.
+voicepeaklegacyfairycall = false
+
 padding = 200
 
 # ◆ 音声ファイルを拡張編集に投げ込む前に、音声ファイルを destdir で指定したフォルダーへ移動する

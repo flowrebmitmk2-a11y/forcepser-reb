@@ -89,9 +89,15 @@ type setting struct {
 	SortDelay float64
 
 	FairyCall string
+	FairyDir  string
+	VoicepeakLegacyFairyCall bool
 
 	projectDir  string
 	dirReplacer *strings.Replacer
+}
+
+func (ss *setting) ExpandedFairyDir() string {
+	return ss.dirReplacer.Replace(ss.FairyDir)
 }
 
 func makeWildcard(s string) (*regexp.Regexp, error) {
@@ -163,6 +169,8 @@ func newSetting(r io.Reader, tempDir string, projectDir string) (*setting, error
 	s.SortDelay = getFloat64("sortdelay", config, 0.1)
 
 	s.FairyCall = getString("fairycall", config, "")
+	s.FairyDir = getString("fairydir", config, "%TEMPDIR%")
+	s.VoicepeakLegacyFairyCall = getBool("voicepeaklegacyfairycall", config, false)
 
 	for _, tr := range getSubTreeArray("rule", config) {
 		var r rule

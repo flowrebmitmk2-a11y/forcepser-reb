@@ -445,7 +445,9 @@ func printDetails(setting *setting, tempDir string) {
 	log.Println(caption.Renderln("フェアリーコール:"))
 	log.Println(info.Renderln("  機能説明:"), "https://oov.github.io/j/forcepser/fairycall/")
 	if setting.FairyCall != "" {
+		log.Println(suppress.Renderln("  VOICEPEAK 旧挙動互換:"), bool2str(setting.VoicepeakLegacyFairyCall, "はい", "いいえ"))
 		log.Println(suppress.Renderln("  呼び出しキー: "), setting.FairyCall)
+		log.Println(suppress.Renderln("  出力先: "), setting.ExpandedFairyDir())
 		log.Println(suppress.Renderln("  フェアリーコール対応アプリケーション及び動作確認済みバージョン:"))
 		for _, f := range fairies {
 			log.Println(suppress.Renderln("   "), f.TestedProgram())
@@ -540,6 +542,10 @@ func process(watcher *fsnotify.Watcher, settingWatcher *fsnotify.Watcher, settin
 	} else {
 		printDetails(setting, tempDir)
 	}
+	voicepeak.SetLegacyFairyCall(setting.VoicepeakLegacyFairyCall)
+	if err := os.MkdirAll(setting.ExpandedFairyDir(), 0777); err != nil {
+		return fmt.Errorf("フェアリーコール出力先フォルダーの作成に失敗しました: %w", err)
+	}
 
 	L := lua.NewState()
 	defer L.Close()
@@ -612,7 +618,7 @@ func process(watcher *fsnotify.Watcher, settingWatcher *fsnotify.Watcher, settin
 	defer cancel()
 	go watchProjectPath(ctx, notify, projectPath)
 	if hk != nil {
-		go watchFairyCall(ctx, notify, hk, getNamer(tempDir))
+		go watchFairyCall(ctx, notify, hk, getNamer(setting.ExpandedFairyDir()))
 	}
 	go watch(ctx, watcher, settingWatcher, notify, settingFile, setting.Freshness, setting.SortDelay)
 	timer := time.NewTimer(time.Duration(setting.SortDelay) * time.Second)
