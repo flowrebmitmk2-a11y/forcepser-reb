@@ -34,6 +34,22 @@ func (uia *UIAutomation) ElementFromHandle(hwnd win32.HWND) (*Element, error) {
 	return &Element{elem}, nil
 }
 
+func (uia *UIAutomation) GetFocusedElement() (*Element, error) {
+	var elem *win32.IUIAutomationElement
+	if hr := uia.IUIAutomation.GetFocusedElement(&elem); win32.FAILED(hr) || elem == nil {
+		return nil, fmt.Errorf("IUIAutomation.GetFocusedElement failed: %s", win32.HRESULT_ToString(hr))
+	}
+	return &Element{elem}, nil
+}
+
+func (uia *UIAutomation) CompareElements(a *Element, b *Element) (bool, error) {
+	var same win32.BOOL
+	if hr := uia.IUIAutomation.CompareElements(a.IUIAutomationElement, b.IUIAutomationElement, &same); win32.FAILED(hr) {
+		return false, fmt.Errorf("IUIAutomation.CompareElements failed: %s", win32.HRESULT_ToString(hr))
+	}
+	return same != win32.FALSE, nil
+}
+
 func (uia *UIAutomation) GetRootElement() (*Element, error) {
 	var elem *win32.IUIAutomationElement
 	if hr := uia.IUIAutomation.GetRootElement(&elem); win32.FAILED(hr) || elem == nil {

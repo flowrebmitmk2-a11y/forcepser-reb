@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/oov/forcepser/fairy"
@@ -45,6 +46,62 @@ func New() fairy.Fairy {
 	return &voicepeak{}
 }
 
+func sendBlockExportShortcut(hwnd win32.HWND) error {
+	// Release modifiers first so a held hotkey does not turn F9 into another shortcut.
+	_, err := internal.SendInput([]internal.Input{
+		{InputType: internal.INPUT_KEYBOARD, KI: internal.KeyboardInput{Vk: win32.VK_CONTROL, Flags: internal.KEYEVENTF_KEYUP}},
+		{InputType: internal.INPUT_KEYBOARD, KI: internal.KeyboardInput{Vk: win32.VK_SHIFT, Flags: internal.KEYEVENTF_KEYUP}},
+		{InputType: internal.INPUT_KEYBOARD, KI: internal.KeyboardInput{Vk: win32.VK_MENU, Flags: internal.KEYEVENTF_KEYUP}},
+		{InputType: internal.INPUT_KEYBOARD, KI: internal.KeyboardInput{Vk: win32.VK_RMENU, Flags: internal.KEYEVENTF_KEYUP}},
+	})
+	if err != nil {
+		return fmt.Errorf("failed to send input: %w", err)
+	}
+
+	win32.SendMessage(hwnd, win32.WM_KEYDOWN, win32.WPARAM(win32.VK_F9), 1)
+	win32.SendMessage(hwnd, win32.WM_KEYUP, win32.WPARAM(win32.VK_F9), 0xc0000001)
+	return nil
+}
+
+func waitBlockExportDialog(uia *internal.UIAutomation, pid win32.DWORD, hwnd win32.HWND) (*blockExportDialog, error) {
+	var blockExportDialog *blockExportDialog
+	var err error
+	for deadLine := time.Now().Add(windowCreationTimeout); ; time.Sleep(windowCreationCheckInterval) {
+		if time.Now().After(deadLine) {
+			return nil, fmt.Errorf("waiting for block export dialog creation timed out: %w", err)
+		}
+		blockExportDialog, err = findBlockExportDialog(uia, pid, hwnd, legacyFairyCall)
+		if err != nil {
+			continue
+		}
+		return blockExportDialog, nil
+	}
+}
+
+func resolveCharacterName(mainWindow *mainWindow) (string, error) {
+	candidates := []func() (string, error){
+		mainWindow.combo.GetName,
+		mainWindow.combo.GetTextViaValuePattern,
+		func() (string, error) {
+			return mainWindow.combo.GetCurrentPropertyStringValue(win32.UIA_ValueValuePropertyId)
+		},
+	}
+	for _, candidate := range candidates {
+		name, err := candidate()
+		if err != nil {
+			continue
+		}
+		name = strings.TrimSpace(name)
+		if name != "" {
+			return name, nil
+		}
+	}
+	if legacyFairyCall {
+		return "", fmt.Errorf("character name is empty")
+	}
+	return "unknown", nil
+}
+
 func SetLegacyFairyCall(v bool) {
 	legacyFairyCall = v
 }
@@ -54,7 +111,7 @@ func (vp *voicepeak) IsTarget(hwnd win32.HWND, exePath string) bool {
 }
 
 func (vp *voicepeak) TestedProgram() string {
-	return "VOICEPEAK 1.2.14"
+	return "VOICEPEAK 1.2.22"
 }
 
 func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (string, error)) error {
@@ -80,13 +137,14 @@ func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (str
 	}
 	defer mainWindow.window.SetEnable(true)
 
-	// get character name / text
-	name, err := mainWindow.combo.GetName()
-	if err != nil {
-		return fmt.Errorf("failed to get character name: %w", err)
-	}
-	if name == "" {
-		return fmt.Errorf("character name is empty")
+	// Current VOICEPEAK no longer needs the character name for export automation.
+	// Keep the old lookup only for legacy fairycall compatibility.
+	name := ""
+	if legacyFairyCall {
+		name, err = resolveCharacterName(mainWindow)
+		if err != nil {
+			return fmt.Errorf("failed to get character name: %w", err)
+		}
 	}
 	text, err := mainWindow.edit.GetTextViaTextPattern()
 	if err != nil {
@@ -125,43 +183,46 @@ func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (str
 		}
 	}
 
-	// show context menu
-	err = mainWindow.edit.ShowContextMenuViaMouseClick(hwnd)
+	// Prefer the block export shortcut on newer VOICEPEAK builds.
+	if hr := mainWindow.edit.SetFocus(); win32.FAILED(hr) {
+		return fmt.Errorf("failed to focus text edit: %s", win32.HRESULT_ToString(hr))
+	}
+
+	err = sendBlockExportShortcut(hwnd)
 	if err != nil {
-		return fmt.Errorf("failed to show context menu: %w", err)
+		return fmt.Errorf("failed to trigger block export shortcut: %w", err)
 	}
 
-	// find menu window
-	var blockMenuWindow *blockMenu
-	for deadLine := time.Now().Add(windowCreationTimeout); ; time.Sleep(windowCreationCheckInterval) {
-		if time.Now().After(deadLine) {
-			return fmt.Errorf("waiting for block menu window creation timed out: %w", err)
-		}
-		blockMenuWindow, err = findBlockMenu(uia, pid, hwnd)
-		if err != nil {
-			continue
-		}
-		break
-	}
-	defer blockMenuWindow.Release()
-
-	// click block export menu item
-	err = blockMenuWindow.export.Invoke()
+	blockExportDialog, err := waitBlockExportDialog(uia, pid, hwnd)
 	if err != nil {
-		return fmt.Errorf("failed to click block export menu item: %w", err)
-	}
-
-	// find block export dialog
-	var blockExportDialog *blockExportDialog
-	for deadLine := time.Now().Add(windowCreationTimeout); ; time.Sleep(windowCreationCheckInterval) {
-		if time.Now().After(deadLine) {
-			return fmt.Errorf("waiting for block export dialog creation timed out: %w", err)
-		}
-		blockExportDialog, err = findBlockExportDialog(uia, pid, hwnd, legacyFairyCall)
+		// Fall back to the older context-menu path for builds where the shortcut is unavailable.
+		err = mainWindow.edit.ShowContextMenuViaMouseClick(hwnd)
 		if err != nil {
-			continue
+			return fmt.Errorf("failed to show context menu after shortcut fallback: %w", err)
 		}
-		break
+
+		var blockMenuWindow *blockMenu
+		for deadLine := time.Now().Add(windowCreationTimeout); ; time.Sleep(windowCreationCheckInterval) {
+			if time.Now().After(deadLine) {
+				return fmt.Errorf("waiting for block menu window creation timed out: %w", err)
+			}
+			blockMenuWindow, err = findBlockMenu(uia, pid, hwnd)
+			if err != nil {
+				continue
+			}
+			break
+		}
+		defer blockMenuWindow.Release()
+
+		err = blockMenuWindow.export.Invoke()
+		if err != nil {
+			return fmt.Errorf("failed to click block export menu item: %w", err)
+		}
+
+		blockExportDialog, err = waitBlockExportDialog(uia, pid, hwnd)
+		if err != nil {
+			return err
+		}
 	}
 	defer blockExportDialog.Release()
 

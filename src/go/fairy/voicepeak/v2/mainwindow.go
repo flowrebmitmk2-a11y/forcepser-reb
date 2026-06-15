@@ -1,9 +1,8 @@
 package voicepeak
 
 import (
-	"errors"
 	"fmt"
-	"log"
+	"strings"
 
 	"github.com/oov/forcepser/fairy/internal"
 
@@ -36,130 +35,179 @@ func (mw *mainWindow) Release() {
 	}
 }
 
-func findMainWindowControls(elems *internal.Elements, index int, out *mainWindow) error {
-	if index < 2 || index >= elems.Len {
-		return internal.ErrElementNotFound
+type mainWindowControlInfo struct {
+	sourceIndex int
+	controlType int32
+	name        string
+}
+
+func isMainWindowRelevantControlType(controlType int32) bool {
+	return controlType == win32.UIA_ButtonControlTypeId ||
+		controlType == win32.UIA_EditControlTypeId ||
+		controlType == win32.UIA_TextControlTypeId
+}
+
+func isMainWindowCharacterNameControlType(controlType int32) bool {
+	return controlType == win32.UIA_ButtonControlTypeId ||
+		controlType == win32.UIA_TextControlTypeId
+}
+
+func findMainWindowControlIndexesOfType(controls []mainWindowControlInfo, editControlType int32, preferredSourceIndex int) (comboIndex int, buttonIndex int, editIndex int, ok bool) {
+	for i := range controls {
+		if controls[i].controlType != editControlType {
+			continue
+		}
+		if preferredSourceIndex >= 0 && controls[i].sourceIndex != preferredSourceIndex {
+			continue
+		}
+
+		for buttonCandidate := i - 1; buttonCandidate >= 1; buttonCandidate-- {
+			if controls[buttonCandidate].controlType != win32.UIA_ButtonControlTypeId || controls[buttonCandidate].name != mainWindowIconButtonName {
+				continue
+			}
+
+			fallbackComboCandidate := -1
+			for comboCandidate := buttonCandidate - 1; comboCandidate >= 0; comboCandidate-- {
+				if !isMainWindowCharacterNameControlType(controls[comboCandidate].controlType) || controls[comboCandidate].name == mainWindowIconButtonName {
+					continue
+				}
+				if fallbackComboCandidate == -1 {
+					fallbackComboCandidate = comboCandidate
+				}
+				if strings.TrimSpace(controls[comboCandidate].name) == "" {
+					continue
+				}
+
+				return comboCandidate, buttonCandidate, i, true
+			}
+			if fallbackComboCandidate != -1 {
+				return fallbackComboCandidate, buttonCandidate, i, true
+			}
+		}
+	}
+	return 0, 0, 0, false
+}
+
+func findMainWindowControlIndexes(controls []mainWindowControlInfo, preferredSourceIndex int) (comboIndex int, buttonIndex int, editIndex int, ok bool) {
+	if preferredSourceIndex >= 0 {
+		comboIndex, buttonIndex, editIndex, ok = findMainWindowControlIndexesOfType(controls, win32.UIA_EditControlTypeId, preferredSourceIndex)
+		if ok {
+			return comboIndex, buttonIndex, editIndex, true
+		}
+		comboIndex, buttonIndex, editIndex, ok = findMainWindowControlIndexesOfType(controls, win32.UIA_TextControlTypeId, preferredSourceIndex)
+		if ok {
+			return comboIndex, buttonIndex, editIndex, true
+		}
 	}
 
-	editElem, err := elems.Get(index)
-	if err != nil {
-		return fmt.Errorf("failed to get edit element: %w", err)
+	comboIndex, buttonIndex, editIndex, ok = findMainWindowControlIndexesOfType(controls, win32.UIA_EditControlTypeId, -1)
+	if ok {
+		return comboIndex, buttonIndex, editIndex, true
 	}
-	defer editElem.Release()
+	return findMainWindowControlIndexesOfType(controls, win32.UIA_TextControlTypeId, -1)
+}
 
-	ctrlType, err := editElem.GetControlType()
-	if err != nil {
-		return fmt.Errorf("failed to get edit control type: %w", err)
-	}
-	if ctrlType != win32.UIA_EditControlTypeId && ctrlType != win32.UIA_TextControlTypeId {
-		return internal.ErrElementNotFound
-	}
-
-	buttonElem, err := elems.Get(index - 1)
-	if err != nil {
-		return fmt.Errorf("failed to get image button element: %w", err)
-	}
-	defer buttonElem.Release()
-
-	ctrlType, err = buttonElem.GetControlType()
-	if err != nil {
-		return fmt.Errorf("failed to get image button control type: %w", err)
-	}
-	if ctrlType != win32.UIA_ButtonControlTypeId {
-		return internal.ErrElementNotFound
-	}
-	name, err := buttonElem.GetName()
-	if err != nil {
-		return fmt.Errorf("failed to get image button control name: %w", err)
-	}
-	if name != mainWindowIconButtonName {
-		return internal.ErrElementNotFound
-	}
-
-	comboElem, err := elems.Get(index - 2)
+func setMainWindowControlsFromIndexes(elems *internal.Elements, comboIndex int, buttonIndex int, editIndex int, out *mainWindow) error {
+	comboElem, err := elems.Get(comboIndex)
 	if err != nil {
 		return fmt.Errorf("failed to get combo box element: %w", err)
 	}
 	defer comboElem.Release()
 
-	ctrlType, err = comboElem.GetControlType()
+	buttonElem, err := elems.Get(buttonIndex)
 	if err != nil {
-		return fmt.Errorf("failed to get combo box control type: %w", err)
+		return fmt.Errorf("failed to get image button element: %w", err)
 	}
-	if ctrlType != win32.UIA_ButtonControlTypeId {
-		return internal.ErrElementNotFound
+	defer buttonElem.Release()
+
+	editElem, err := elems.Get(editIndex)
+	if err != nil {
+		return fmt.Errorf("failed to get edit element: %w", err)
 	}
+	defer editElem.Release()
 
 	comboElem.AddRef()
 	out.combo = comboElem
-	editElem.AddRef()
-	out.edit = editElem
 	buttonElem.AddRef()
 	out.button = buttonElem
+	editElem.AddRef()
+	out.edit = editElem
 	return nil
 }
 
-func findMainWindowControls2(elems *internal.Elements, index int, out *mainWindow) error {
-	if index < 3 || index >= elems.Len {
+func findFocusedSourceIndex(uia *internal.UIAutomation, elems *internal.Elements) (int, error) {
+	focused, err := uia.GetFocusedElement()
+	if err != nil {
+		return -1, nil
+	}
+	defer focused.Release()
+
+	for i := 0; i < elems.Len; i++ {
+		elem, err := elems.Get(i)
+		if err != nil {
+			return -1, fmt.Errorf("failed to get main window element: %w", err)
+		}
+		same, err := uia.CompareElements(elem, focused)
+		elem.Release()
+		if err != nil {
+			return -1, fmt.Errorf("failed to compare focused element: %w", err)
+		}
+		if same {
+			return i, nil
+		}
+	}
+	return -1, nil
+}
+
+func findMainWindowControls(uia *internal.UIAutomation, elems *internal.Elements, out *mainWindow) error {
+	controls := make([]mainWindowControlInfo, 0, elems.Len)
+	for i := 0; i < elems.Len; i++ {
+		elem, err := elems.Get(i)
+		if err != nil {
+			return fmt.Errorf("failed to get main window element: %w", err)
+		}
+
+		ctrlType, err := elem.GetControlType()
+		if err != nil {
+			elem.Release()
+			return fmt.Errorf("failed to get main window control type: %w", err)
+		}
+		if !isMainWindowRelevantControlType(ctrlType) {
+			elem.Release()
+			continue
+		}
+
+		info := mainWindowControlInfo{
+			sourceIndex: i,
+			controlType: ctrlType,
+		}
+		if ctrlType == win32.UIA_ButtonControlTypeId || ctrlType == win32.UIA_TextControlTypeId {
+			info.name, err = elem.GetName()
+			if err != nil {
+				elem.Release()
+				return fmt.Errorf("failed to get main window control name: %w", err)
+			}
+		}
+		controls = append(controls, info)
+		elem.Release()
+	}
+
+	preferredSourceIndex, err := findFocusedSourceIndex(uia, elems)
+	if err != nil {
+		return err
+	}
+
+	comboIndex, buttonIndex, editIndex, ok := findMainWindowControlIndexes(controls, preferredSourceIndex)
+	if !ok {
 		return internal.ErrElementNotFound
 	}
-
-	editElem, err := elems.Get(index)
-	if err != nil {
-		return fmt.Errorf("failed to get edit element: %w", err)
-	}
-	defer editElem.Release()
-
-	ctrlType, err := editElem.GetControlType()
-	if err != nil {
-		return fmt.Errorf("failed to get edit control type: %w", err)
-	}
-	if ctrlType != win32.UIA_EditControlTypeId && ctrlType != win32.UIA_TextControlTypeId {
-		return internal.ErrElementNotFound
-	}
-
-	buttonElem, err := elems.Get(index - 2)
-	if err != nil {
-		return fmt.Errorf("failed to get image button element: %w", err)
-	}
-	defer buttonElem.Release()
-
-	ctrlType, err = buttonElem.GetControlType()
-	if err != nil {
-		return fmt.Errorf("failed to get image button control type: %w", err)
-	}
-	if ctrlType != win32.UIA_ButtonControlTypeId {
-		return internal.ErrElementNotFound
-	}
-	name, err := buttonElem.GetName()
-	if err != nil {
-		return fmt.Errorf("failed to get image button control name: %w", err)
-	}
-	if name != mainWindowIconButtonName {
-		return internal.ErrElementNotFound
-	}
-
-	comboElem, err := elems.Get(index - 3)
-	if err != nil {
-		return fmt.Errorf("failed to get combo box element: %w", err)
-	}
-	defer comboElem.Release()
-
-	ctrlType, err = comboElem.GetControlType()
-	if err != nil {
-		return fmt.Errorf("failed to get combo box control type: %w", err)
-	}
-	if ctrlType != win32.UIA_ButtonControlTypeId {
-		return internal.ErrElementNotFound
-	}
-
-	comboElem.AddRef()
-	out.combo = comboElem
-	editElem.AddRef()
-	out.edit = editElem
-	buttonElem.AddRef()
-	out.button = buttonElem
-	return nil
+	return setMainWindowControlsFromIndexes(
+		elems,
+		controls[comboIndex].sourceIndex,
+		controls[buttonIndex].sourceIndex,
+		controls[editIndex].sourceIndex,
+		out,
+	)
 }
 
 func newMainWindow(uia *internal.UIAutomation, hwnd win32.HWND) (*mainWindow, error) {
@@ -211,41 +259,39 @@ func newMainWindow(uia *internal.UIAutomation, hwnd win32.HWND) (*mainWindow, er
 	}
 	defer window.Release()
 
-	// find controls
-	cndTrue, err := uia.CreateTrueCondition()
-	if err != nil {
-		return nil, fmt.Errorf("failed to create true condition: %w", err)
-	}
-	defer cndTrue.Release()
-
-	elems, err := window.FindAll(win32.TreeScope_Children, cndTrue)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get children: %w", err)
-	}
-	defer elems.Release()
-
 	r := mainWindow{
 		window: window,
 	}
-	for i := 0; i < elems.Len && r.edit == nil; i++ {
-		err = findMainWindowControls(elems, i, &r)
+	scopes := []win32.TreeScope{
+		win32.TreeScope_Children,
+		win32.TreeScope_Descendants,
+	}
+	for _, scope := range scopes {
+		cndTrue, err := uia.CreateTrueCondition()
 		if err != nil {
-			if !errors.Is(err, internal.ErrElementNotFound) {
-				log.Printf("failed to get elements: %v", err)
-			}
+			return nil, fmt.Errorf("failed to create true condition: %w", err)
 		}
+
+		elems, err := window.FindAll(scope, cndTrue)
+		cndTrue.Release()
+		if err != nil {
+			if err == internal.ErrElementNotFound {
+				continue
+			}
+			return nil, fmt.Errorf("failed to get window elements: %w", err)
+		}
+
+		err = findMainWindowControls(uia, elems, &r)
+		elems.Release()
 		if err == nil {
-			continue
+			break
 		}
-		err = findMainWindowControls2(elems, i, &r)
-		if err != nil {
-			if !errors.Is(err, internal.ErrElementNotFound) {
-				log.Printf("failed to get elements: %v", err)
-			}
+		if err != nil && err != internal.ErrElementNotFound {
+			return nil, err
 		}
 	}
 	if r.combo == nil || r.edit == nil || r.button == nil {
-		return nil, fmt.Errorf("main window controls not found")
+		return nil, fmt.Errorf("main window controls not found in children or descendants")
 	}
 	defer r.combo.Release()
 	defer r.edit.Release()
