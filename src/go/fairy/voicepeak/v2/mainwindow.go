@@ -210,8 +210,7 @@ func findMainWindowControls(uia *internal.UIAutomation, elems *internal.Elements
 	)
 }
 
-func newMainWindow(uia *internal.UIAutomation, hwnd win32.HWND) (*mainWindow, error) {
-	// verify window
+func findMainWindowElement(uia *internal.UIAutomation, hwnd win32.HWND) (*internal.Element, error) {
 	var conds []*win32.IUIAutomationCondition
 	cndCtrl, err := uia.CreateInt32PropertyCondition(win32.UIA_ControlTypePropertyId, win32.UIA_WindowControlTypeId)
 	if err != nil {
@@ -256,6 +255,14 @@ func newMainWindow(uia *internal.UIAutomation, hwnd win32.HWND) (*mainWindow, er
 		if err != nil {
 			return nil, fmt.Errorf("FindFirst failed: %w", err)
 		}
+	}
+	return window, nil
+}
+
+func newMainWindow(uia *internal.UIAutomation, hwnd win32.HWND) (*mainWindow, error) {
+	window, err := findMainWindowElement(uia, hwnd)
+	if err != nil {
+		return nil, err
 	}
 	defer window.Release()
 

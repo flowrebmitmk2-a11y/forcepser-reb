@@ -114,6 +114,14 @@ func (vp *voicepeak) TestedProgram() string {
 	return "VOICEPEAK 1.2.22"
 }
 
+func buildExportDir(namer func(name, text string) (string, error)) (string, error) {
+	wavPath, err := namer("", "")
+	if err != nil {
+		return "", fmt.Errorf("failed to build export path: %w", err)
+	}
+	return filepath.Dir(wavPath), nil
+}
+
 func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (string, error)) error {
 	var pid uint32
 	win32.GetWindowThreadProcessId(hwnd, &pid)
@@ -123,69 +131,67 @@ func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (str
 		return fmt.Errorf("failed to create IUIAutomation: %w", err)
 	}
 
-	// find main window
-	mainWindow, err := newMainWindow(uia, hwnd)
+	exportDir, err := buildExportDir(namer)
 	if err != nil {
-		return fmt.Errorf("main window not found: %w", err)
+		return err
 	}
-	defer mainWindow.Release()
 
-	// disable during automation
-	err = mainWindow.window.SetEnable(false)
-	if err != nil {
-		return fmt.Errorf("failed to disable window")
+	var mainWindow *mainWindow
+	if legacyFairyCall {
+		mainWindow, err = newMainWindow(uia, hwnd)
+		if err != nil {
+			return fmt.Errorf("main window not found: %w", err)
+		}
+		defer mainWindow.Release()
+
+		err = mainWindow.window.SetEnable(false)
+		if err != nil {
+			return fmt.Errorf("failed to disable window")
+		}
+		defer mainWindow.window.SetEnable(true)
 	}
-	defer mainWindow.window.SetEnable(true)
 
-	// Current VOICEPEAK no longer needs the character name for export automation.
-	// Keep the old lookup only for legacy fairycall compatibility.
 	name := ""
+	text := ""
+
 	if legacyFairyCall {
 		name, err = resolveCharacterName(mainWindow)
 		if err != nil {
 			return fmt.Errorf("failed to get character name: %w", err)
 		}
-	}
-	text, err := mainWindow.edit.GetTextViaTextPattern()
-	if err != nil {
-		return fmt.Errorf("failed to get text: %w", err)
-	}
-	if text == "" {
-		return fmt.Errorf("text is empty")
-	}
 
-	// get current caret position
-	tr, err := mainWindow.edit.GetFirstSelection()
-	if err != nil {
-		return fmt.Errorf("failed to get edit text pattern: %w", err)
-	}
-	if tr != nil {
-		// restore focus and caret on exit, if available
-		defer func() {
-			mainWindow.edit.SetFocus()
-			tr.Select()
-			tr.Release()
-		}()
-	}
+		text, err = mainWindow.edit.GetTextViaTextPattern()
+		if err != nil {
+			return fmt.Errorf("failed to get text: %w", err)
+		}
+		if text == "" {
+			return fmt.Errorf("text is empty")
+		}
 
-	// Build the export directory from the configured namer.
-	// In legacy mode we also use the exact filename for compatibility.
-	wavPath, err := namer(name, text)
-	if err != nil {
-		return fmt.Errorf("failed to build filename: %w", err)
-	}
-	if legacyFairyCall {
+		// get current caret position
+		tr, err := mainWindow.edit.GetFirstSelection()
+		if err != nil {
+			return fmt.Errorf("failed to get edit text pattern: %w", err)
+		}
+		if tr != nil {
+			// restore focus and caret on exit, if available
+			defer func() {
+				mainWindow.edit.SetFocus()
+				tr.Select()
+				tr.Release()
+			}()
+		}
+
+		wavPath, err := namer(name, text)
+		if err != nil {
+			return fmt.Errorf("failed to build filename: %w", err)
+		}
 		_, err = os.Stat(wavPath)
 		if err == nil {
 			return fmt.Errorf("file %v already exists: %w", wavPath, os.ErrExist)
 		} else if !os.IsNotExist(err) {
 			return fmt.Errorf("failed to test file %v: %w", wavPath, err)
 		}
-	}
-
-	// Prefer the block export shortcut on newer VOICEPEAK builds.
-	if hr := mainWindow.edit.SetFocus(); win32.FAILED(hr) {
-		return fmt.Errorf("failed to focus text edit: %s", win32.HRESULT_ToString(hr))
 	}
 
 	err = sendBlockExportShortcut(hwnd)
@@ -195,38 +201,17 @@ func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (str
 
 	blockExportDialog, err := waitBlockExportDialog(uia, pid, hwnd)
 	if err != nil {
-		// Fall back to the older context-menu path for builds where the shortcut is unavailable.
-		err = mainWindow.edit.ShowContextMenuViaMouseClick(hwnd)
-		if err != nil {
-			return fmt.Errorf("failed to show context menu after shortcut fallback: %w", err)
-		}
-
-		var blockMenuWindow *blockMenu
-		for deadLine := time.Now().Add(windowCreationTimeout); ; time.Sleep(windowCreationCheckInterval) {
-			if time.Now().After(deadLine) {
-				return fmt.Errorf("waiting for block menu window creation timed out: %w", err)
-			}
-			blockMenuWindow, err = findBlockMenu(uia, pid, hwnd)
-			if err != nil {
-				continue
-			}
-			break
-		}
-		defer blockMenuWindow.Release()
-
-		err = blockMenuWindow.export.Invoke()
-		if err != nil {
-			return fmt.Errorf("failed to click block export menu item: %w", err)
-		}
-
-		blockExportDialog, err = waitBlockExportDialog(uia, pid, hwnd)
-		if err != nil {
-			return err
-		}
+		return err
 	}
 	defer blockExportDialog.Release()
 
+	var wavPath string
 	if legacyFairyCall {
+		wavPath, err = namer(name, text)
+		if err != nil {
+			return fmt.Errorf("failed to build filename: %w", err)
+		}
+
 		// set export file name
 		behwnd, err := blockExportDialog.window.GetNativeWindowHandle()
 		if err != nil {
@@ -271,12 +256,14 @@ func (vp *voicepeak) Execute(hwnd win32.HWND, namer func(name, text string) (str
 	defer folderSelectDialog.Release()
 
 	// input export folder
-	err = folderSelectDialog.edit.SetTextViaValuePattern(filepath.Dir(wavPath))
+	err = folderSelectDialog.edit.SetTextViaValuePattern(exportDir)
 	if err != nil {
 		return fmt.Errorf("failed to input export folder: %w", err)
 	}
 
-	mainWindow.window.SetEnable(true)
+	if legacyFairyCall {
+		mainWindow.window.SetEnable(true)
+	}
 
 	// click button
 	err = folderSelectDialog.button.Invoke()
