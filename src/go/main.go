@@ -18,6 +18,7 @@ import (
 	"github.com/oov/forcepser/fairy"
 	"github.com/oov/forcepser/fairy/aivoice2/v1"
 	"github.com/oov/forcepser/fairy/voicepeak/v2"
+	"github.com/oov/forcepser/fairy/voiceroid2/v1"
 	"github.com/oov/forcepser/fairy/voisonatalk/v1"
 	"github.com/oov/forcepser/hotkey"
 
@@ -38,7 +39,7 @@ var verbose bool
 var preventClear bool
 var version string
 
-var fairies = fairy.Fairies{aivoice2.New(), voicepeak.New(), voisonatalk.New()}
+var fairies = fairy.Fairies{aivoice2.New(), voiceroid2.New(), voicepeak.New(), voisonatalk.New()}
 
 type file struct {
 	Filepath string

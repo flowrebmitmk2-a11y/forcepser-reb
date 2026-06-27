@@ -78,6 +78,17 @@ https://www.nicovideo.jp/watch/sm37471880
 
 これは「名前を付けて保存」ダイアログの自動処理のために使用されます。
 
+フェアリーコールについて
+------------------------
+
+グローバルセクションに `fairycall = "Alt + Ctrl + Shift + S"` のような設定を書くと、対応ソフトの前景ウィンドウに対して保存操作を自動化できます。
+
+- 現在の対応ソフトは `VOICEPEAK` `VOICEROID2` `A.I.VOICE2` `VoiSona Talk Editor` です
+- 出力先フォルダーは `fairydir` で指定します
+- `VOICEPEAK` は `voicepeaklegacyfairycall = false` が現行版向け、`true` が旧挙動互換です
+- `VOICEPEAK` を現行版向け設定で使う場合は、VOICEPEAK 側で `命名規則を有効` を ON にしてください
+- あわせて、テキストファイルも一緒に出力される設定にしておいてください
+
 起動時パラメーターについて
 --------------------------
 

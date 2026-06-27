@@ -306,3 +306,17 @@ func (elem *Element) ShowContextMenuViaMouseClick(window win32.HWND) error {
 	win32.PostMessage(window, win32.WM_RBUTTONUP, win32.WPARAM(win32.MK_RBUTTON), win32.LPARAM(win32.MAKELONG(uint16(pt.X), uint16(pt.Y))))
 	return nil
 }
+
+func (elem *Element) LeftClickViaMouseClick(window win32.HWND) error {
+	r, err := elem.GetCurrentPropertyRectValue(win32.UIA_BoundingRectanglePropertyId)
+	if err != nil {
+		return fmt.Errorf("failed to get BoundingRect: %w", err)
+	}
+	var pt win32.POINT
+	win32.ClientToScreen(window, &pt)
+	pt.X = int32(r[0]) - pt.X + 2
+	pt.Y = int32(r[1]) - pt.Y + 2
+	win32.PostMessage(window, win32.WM_LBUTTONDOWN, win32.WPARAM(win32.MK_LBUTTON), win32.LPARAM(win32.MAKELONG(uint16(pt.X), uint16(pt.Y))))
+	win32.PostMessage(window, win32.WM_LBUTTONUP, 0, win32.LPARAM(win32.MAKELONG(uint16(pt.X), uint16(pt.Y))))
+	return nil
+}

@@ -6,13 +6,14 @@ import (
 )
 
 func TestBuildExportDir(t *testing.T) {
+	wantDir := filepath.Join("testdata", "forcepser")
 	dir, err := buildExportDir(func(name, text string) (string, error) {
-		return filepath.Join(`C:\tmp\forcepser`, "dummy.wav"), nil
+		return filepath.Join(wantDir, "dummy.wav"), nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if dir != `C:\tmp\forcepser` {
+	if dir != wantDir {
 		t.Fatalf("unexpected export dir: %q", dir)
 	}
 }

@@ -38,6 +38,7 @@ fairydir = '%TEMPDIR%'
 ## VOICEPEAK fairycall compatibility switch.
 ## false: use VOICEPEAK's naming rule and text-file output.
 ## true:  use the old forcepser behavior that fills the filename and writes txt by itself.
+## When false, enable VOICEPEAK's naming rule and text-file output in the app settings.
 voicepeaklegacyfairycall = false
 
 padding = 200
