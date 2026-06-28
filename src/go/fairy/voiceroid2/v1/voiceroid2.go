@@ -13,6 +13,9 @@ import (
 var (
 	exeName = "VoiceroidEditor.exe"
 
+	defaultSaveFileNamePrefix = "ボイロ2"
+	saveFileNamePrefix        = defaultSaveFileNamePrefix
+
 	saveDialogClass     = "#32770"
 	saveDialogFramework = "Win32"
 	saveDialogButtonID  = 1
@@ -35,12 +38,16 @@ func (vr *voiceroid2) TestedProgram() string {
 	return "VOICEROID2"
 }
 
-func buildSaveFileName(namer func(name, text string) (string, error), name string, text string) (string, error) {
-	wavPath, err := namer(name, text)
-	if err != nil {
-		return "", fmt.Errorf("failed to build filename: %w", err)
+func SetSaveFileNamePrefix(prefix string) {
+	if prefix == "" {
+		saveFileNamePrefix = defaultSaveFileNamePrefix
+		return
 	}
-	return filepath.Base(wavPath), nil
+	saveFileNamePrefix = prefix
+}
+
+func buildSaveFileName() string {
+	return fmt.Sprintf("%s_%d.wav", saveFileNamePrefix, time.Now().UnixMilli())
 }
 
 func (vr *voiceroid2) Execute(hwnd win32.HWND, namer func(name, text string) (string, error)) error {
@@ -61,10 +68,7 @@ func (vr *voiceroid2) Execute(hwnd win32.HWND, namer func(name, text string) (st
 
 	name := mainWindow.resolveCharacterName()
 	text := mainWindow.resolveText()
-	filename, err := buildSaveFileName(namer, name, text)
-	if err != nil {
-		return err
-	}
+	filename := buildSaveFileName()
 	logResolvedState(name, text, filename)
 
 	diagln("voiceroid2 diag: triggering save action")

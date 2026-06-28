@@ -88,9 +88,10 @@ type setting struct {
 	Sort      string
 	SortDelay float64
 
-	FairyCall string
-	FairyDir  string
+	FairyCall                string
+	FairyDir                 string
 	VoicepeakLegacyFairyCall bool
+	Voiceroid2FairyPrefix    string
 
 	projectDir  string
 	dirReplacer *strings.Replacer
@@ -171,6 +172,7 @@ func newSetting(r io.Reader, tempDir string, projectDir string) (*setting, error
 	s.FairyCall = getString("fairycall", config, "")
 	s.FairyDir = getString("fairydir", config, "%TEMPDIR%")
 	s.VoicepeakLegacyFairyCall = getBool("voicepeaklegacyfairycall", config, false)
+	s.Voiceroid2FairyPrefix = getString("voiceroid2fairyprefix", config, "")
 
 	for _, tr := range getSubTreeArray("rule", config) {
 		var r rule

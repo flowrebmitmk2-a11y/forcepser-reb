@@ -34,6 +34,10 @@
 # Default is %TEMPDIR%, but you can change it to a watched folder such as F:\音声\tmp.
 fairydir = '%TEMPDIR%'
 
+# VOICEROID2 fairycall output filename prefix.
+# Default is 'ボイロ2'. If you change this, update matching [[rule]] file patterns too.
+# voiceroid2fairyprefix = 'ボイロ2'
+
 # ◆ 音声ファイルを拡張編集に自動挿入したあと、後ろに確保する余白の大きさをミリ秒単位で指定
 ## VOICEPEAK fairycall compatibility switch.
 ## false: use VOICEPEAK's naming rule and text-file output.
@@ -125,7 +129,7 @@ deletetext = true
 #[[rule]]
 #encoding = 'sjis'
 #file = 'ボイロ2_*.wav'
-#text = '''^東北きりたん\(v1\)＞'''
+#text = '''^東北きりたん\(v1\)[^＞]*＞'''
 #layer = 1
 #modifier = '''
 #  text = re.gsub(text, "^.*?＞", "") -- ボイスプリセットタグを除去

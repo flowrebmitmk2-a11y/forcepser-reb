@@ -447,6 +447,12 @@ func printDetails(setting *setting, tempDir string) {
 	log.Println(info.Renderln("  機能説明:"), "https://oov.github.io/j/forcepser/fairycall/")
 	if setting.FairyCall != "" {
 		log.Println(suppress.Renderln("  VOICEPEAK 旧挙動互換:"), bool2str(setting.VoicepeakLegacyFairyCall, "はい", "いいえ"))
+		log.Println(suppress.Renderln("  VOICEROID2 保存プレフィックス:"), func() string {
+			if setting.Voiceroid2FairyPrefix == "" {
+				return "ボイロ2 (既定値)"
+			}
+			return setting.Voiceroid2FairyPrefix
+		}())
 		log.Println(suppress.Renderln("  呼び出しキー: "), setting.FairyCall)
 		log.Println(suppress.Renderln("  出力先: "), setting.ExpandedFairyDir())
 		log.Println(suppress.Renderln("  フェアリーコール対応アプリケーション及び動作確認済みバージョン:"))
@@ -544,6 +550,7 @@ func process(watcher *fsnotify.Watcher, settingWatcher *fsnotify.Watcher, settin
 		printDetails(setting, tempDir)
 	}
 	voicepeak.SetLegacyFairyCall(setting.VoicepeakLegacyFairyCall)
+	voiceroid2.SetSaveFileNamePrefix(setting.Voiceroid2FairyPrefix)
 	if err := os.MkdirAll(setting.ExpandedFairyDir(), 0777); err != nil {
 		return fmt.Errorf("フェアリーコール出力先フォルダーの作成に失敗しました: %w", err)
 	}
